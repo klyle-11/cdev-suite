@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cdev</title>
+<style>
+:root {
+  --bg: #fbfbfa; --panel: #ffffff; --line: #e6e4df; --text: #1d1c1a; --dim: #77736b; --faint: #a9a49a;
+  --accent: #1f7a5a; --warn: #a86400; --err: #c2352b; --blue: #2563c9; --violet: #7c3aed; --cyan: #0f7c8c;
+  --hl: #ffe89a; --hl-text: #1d1c1a; --sel: #eef4f1;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111210; --panel: #181917; --line: #2a2b28; --text: #e8e6e1; --dim: #8e8a82; --faint: #5d5a54;
+    --accent: #4cc393; --warn: #e3a33b; --err: #f06a5f; --blue: #6ea2ff; --violet: #b18cff; --cyan: #4fc6d6;
+    --hl: #6b5a12; --hl-text: #fff6cc; --sel: #1d2a24;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111210; --panel: #181917; --line: #2a2b28; --text: #e8e6e1; --dim: #8e8a82; --faint: #5d5a54;
+  --accent: #4cc393; --warn: #e3a33b; --err: #f06a5f; --blue: #6ea2ff; --violet: #b18cff; --cyan: #4fc6d6;
+  --hl: #6b5a12; --hl-text: #fff6cc; --sel: #1d2a24;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; }
+header { display: flex; align-items: center; gap: 16px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.brand { font: 600 14px var(--mono); color: var(--accent); }
+nav { display: flex; gap: 2px; }
+nav button { border: 0; background: none; color: var(--dim); font: inherit; padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+nav button.on { background: var(--sel); color: var(--text); font-weight: 600; }
+nav kbd { font: 10px var(--mono); color: var(--faint); margin-right: 4px; }
+.status { margin-left: auto; font: 12px var(--mono); color: var(--dim); display: flex; gap: 12px; align-items: center; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); display: inline-block; }
+.dot.live { background: var(--accent); }
+input[type=search] { font: 12px var(--mono); padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); width: 220px; }
+button.plain { font: 12px system-ui; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+main { flex: 1; min-height: 0; display: flex; }
+.view { flex: 1; min-width: 0; display: flex; }
+.view:not(.on), [hidden] { display: none !important; }
+.col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.scroll { overflow: auto; min-height: 0; }
+.split { display: grid; grid-template-columns: minmax(260px, 34%) 1fr; flex: 1; min-height: 0; }
+.split > * { border-right: 1px solid var(--line); }
+.pane-title { font: 600 11px system-ui; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); padding: 10px 14px 6px; display: flex; gap: 8px; align-items: center; }
+.row { font: 12px/1.6 var(--mono); padding: 1px 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-left: 2px solid transparent; }
+.row:hover { background: var(--sel); }
+.row.sel { background: var(--sel); border-left-color: var(--accent); }
+.t { color: var(--faint); margin-right: 8px; }
+.svc { display: inline-block; width: 92px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; margin-right: 6px; }
+.k { display: inline-block; width: 46px; font-weight: 600; font-size: 10px; }
+.k-watch { color: var(--cyan); } .k-call { color: var(--violet); } .k-http { color: var(--blue); } .k-error, .lv-error { color: var(--err); }
+.lv-warn { color: var(--warn); } .k-service { color: var(--accent); } .lv-debug { color: var(--faint); }
+.loc { color: var(--faint); margin-left: 10px; }
+pre { font: 12px/1.5 var(--mono); margin: 0; padding: 10px 14px; white-space: pre-wrap; word-break: break-word; }
+.detail { border-top: 1px solid var(--line); max-height: 45%; background: var(--panel); }
+.empty { color: var(--dim); padding: 40px 24px; font-size: 13px; }
+.empty code { font: 12px var(--mono); background: var(--sel); padding: 1px 5px; border-radius: 4px; }
+.sig { font: 12px var(--mono); color: var(--cyan); padding: 0 14px 6px; }
+.req-res { display: grid; grid-template-columns: 1fr 1fr; flex: 1; min-height: 0; }
+.side { border-bottom: 1px solid var(--line); }
+.side-h { font: 600 12px system-ui; padding: 10px 14px 0; color: var(--text); }
+.side-h small { font-weight: 400; color: var(--dim); }
+.side .req-res > div { overflow: auto; max-height: 42vh; }
+button.plain.on { background: var(--sel); border-color: var(--accent); }
+.shape { font: 12px var(--mono); color: var(--cyan); padding: 2px 14px; }
+.kv { font: 12px var(--mono); padding: 2px 14px; } .kv b { color: var(--dim); font-weight: 400; display: inline-block; width: 96px; }
+.req-res > div { border-right: 1px solid var(--line); overflow: auto; }
+.hdr { font: 12px var(--mono); padding: 0 14px; }
+.hdr b { color: var(--dim); font-weight: 400; }
+.big { font: 600 13px var(--mono); padding: 8px 14px 4px; }
+.s2 { color: var(--accent); } .s3 { color: var(--cyan); } .s4 { color: var(--warn); } .s5, .sE { color: var(--err); }
+/* data structures */
+.ds { padding: 12px 14px 24px; }
+.ds-meta { font: 12px var(--mono); color: var(--dim); margin-bottom: 10px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.ds-note { color: var(--warn); font-weight: 600; }
+.badge { font: 600 10px system-ui; text-transform: uppercase; letter-spacing: .05em; background: var(--sel); color: var(--accent); padding: 2px 7px; border-radius: 10px; }
+.cells { display: flex; flex-wrap: wrap; gap: 0; font: 13px var(--mono); margin-bottom: 8px; }
+.cell { display: flex; flex-direction: column; align-items: center; min-width: 38px; }
+.cell .i { font-size: 10px; color: var(--faint); }
+.cell .v { border: 1px solid var(--line); margin-left: -1px; padding: 6px 8px; min-width: 38px; text-align: center; background: var(--panel); transition: background .25s; }
+.cell .v.ch { background: var(--hl); color: var(--hl-text); font-weight: 700; }
+.cell .p { font-size: 11px; color: var(--cyan); font-weight: 700; min-height: 16px; }
+table.grid { border-collapse: collapse; font: 12px var(--mono); }
+table.grid td, table.grid th { border: 1px solid var(--line); padding: 3px 7px; text-align: right; min-width: 28px; }
+table.grid th { color: var(--faint); font-weight: 400; border: 0; }
+table.grid td.ch { background: var(--hl); color: var(--hl-text); font-weight: 700; }
+table.grid td.z { color: var(--faint); }
+.chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 13px var(--mono); }
+.node { border: 1.5px solid var(--text); border-radius: 6px; padding: 5px 10px; background: var(--panel); }
+.arrow { color: var(--cyan); }
+.cyc { color: var(--err); font-weight: 600; }
+svg text { font: 12px var(--mono); fill: var(--text); }
+svg .n { fill: var(--panel); stroke: var(--text); stroke-width: 1.5; }
+svg .n.ch { fill: var(--hl); }
+svg .e { stroke: var(--faint); stroke-width: 1.3; fill: none; }
+svg .lbl { fill: var(--dim); font-size: 10px; }
+.steps { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--dim); }
+.steps input[type=range] { flex: 1; accent-color: var(--accent); }
+.hist .row { font-size: 11.5px; }
+.tchg { color: var(--warn); }
+.map-wrap { flex: 1; display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+.map-wrap svg { width: 100%; height: auto; margin: 12px 0; }
+.edge-list { border-left: 1px solid var(--line); overflow: auto; }
+.edge { padding: 8px 14px; border-bottom: 1px solid var(--line); font: 12px var(--mono); }
+.edge .lbls { color: var(--dim); font-size: 11px; }
+/* memory */
+.mem-wrap { position: relative; display: grid; grid-template-columns: minmax(280px, 42%) 1fr; gap: 90px; padding: 16px 20px 40px; align-items: start; }
+.mem-col h4 { font: 600 11px system-ui; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; }
+.mbox { border: 1.5px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 10px; margin-bottom: 12px; font: 12px var(--mono); position: relative; z-index: 1; }
+.mbox.ch { border-color: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+.mbox .nm { font-weight: 700; font-size: 13px; }
+.mbox .ty { color: var(--cyan); margin-left: 8px; }
+.mbox .ad { color: var(--faint); font-size: 11px; margin-top: 2px; }
+.mbox .vl { color: var(--dim); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rg { font: 600 9.5px system-ui; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 8px; margin-left: 6px; background: var(--sel); color: var(--dim); }
+.rg-stack { color: var(--blue); } .rg-heap { color: var(--violet); } .rg-inline { color: var(--accent); } .rg-static { color: var(--warn); }
+.sharedb { color: var(--err); font-weight: 700; margin-left: 6px; font-size: 11px; }
+.bytes { display: flex; flex-wrap: wrap; margin-top: 6px; }
+.bytes span { border: 1px solid var(--line); margin-left: -1px; min-width: 26px; padding: 3px 5px; text-align: center; font-size: 11px; }
+.bytes span.free { border-style: dashed; color: var(--faint); }
+.lnk { font-size: 11px; color: var(--violet); margin-top: 4px; }
+#mem-arrows { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+#mem-arrows path { fill: none; stroke: var(--violet); stroke-width: 1.6; }
+#mem-arrows path.al { stroke: var(--err); stroke-dasharray: 4 3; }
+.mem-note { font: 600 12px var(--mono); color: var(--warn); }
+@media (max-width: 760px) {
+  .split, .req-res, .map-wrap { grid-template-columns: 1fr; }
+  input[type=search] { width: 140px; }
+  .svc { width: 60px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">cdev</span>
+  <nav id="tabs">
+    <button data-v="live" class="on"><kbd>1</kbd>Live</button>
+    <button data-v="vars"><kbd>2</kbd>Vars</button>
+    <button data-v="api"><kbd>3</kbd>API</button>
+    <button data-v="map"><kbd>4</kbd>Map</button>
+    <button data-v="mem"><kbd>5</kbd>Mem</button>
+  </nav>
+  <input type="search" id="q" placeholder="filter  (text, kind, level)">
+  <div class="status"><span><span class="dot" id="dot"></span> <span id="conn">connecting</span></span><span id="count">0</span><button class="plain" id="clear">Clear</button><button class="plain" id="theme" title="theme">◐</button></div>
+</header>
+<main>
+  <section class="view on col" id="v-live">
+    <div class="scroll" id="live" style="flex:1"></div>
+    <div class="detail scroll" id="live-detail" hidden></div>
+  </section>
+
+  <section class="view" id="v-vars">
+    <div class="split">
+      <div class="col"><div class="pane-title">Watched</div><div class="scroll" id="var-list"></div></div>
+      <div class="col" style="min-width:0">
+        <div class="steps" id="steps" hidden>
+          <button class="plain" id="prev">◀</button>
+          <button class="plain" id="play">▶ play</button>
+          <button class="plain" id="next">▶</button>
+          <input type="range" id="slider" min="0" max="0" value="0">
+          <span id="stepn"></span>
+        </div>
+        <div class="scroll" id="var-view" style="flex:1"></div>
+        <div class="pane-title">History</div>
+        <div class="scroll hist" id="var-hist" style="max-height:28%"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="v-api">
+    <div class="split">
+      <div class="col"><div class="pane-title">
+        <button class="plain" id="api-calls" style="font-size:11px">Calls</button>
+        <button class="plain" id="api-eps" style="font-size:11px">Endpoints</button>
+        <span style="margin-left:auto;text-transform:none;letter-spacing:0">⇄ both sides · ≈ by timing</span></div>
+        <div class="scroll" id="api-list"></div></div>
+      <div class="col">
+        <div class="scroll" id="api-detail" style="flex:1"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view col" id="v-mem">
+    <div class="steps" id="mem-steps">
+      <button class="plain" id="mprev">◀</button>
+      <button class="plain" id="mplay">▶ play</button>
+      <button class="plain" id="mnext">▶</button>
+      <input type="range" id="mslider" min="0" max="0" value="0">
+      <span id="mstepn"></span>
+    </div>
+    <div class="pane-title"><span class="mem-note" id="mem-note"></span></div>
+    <div class="scroll" style="flex:1"><div class="mem-wrap" id="mem-wrap"></div></div>
+  </section>
+
+  <section class="view" id="v-map">
+    <div class="map-wrap">
+      <div class="col"><div class="pane-title">What talks to what</div><svg id="map-svg"></svg></div>
+      <div class="edge-list" id="edge-list"></div>
+    </div>
+  </section>
+</main>
+
+<script>/*__CDEV_INIT__*/</script>
+<script>
+(() => {
+'use strict';
+const $ = (id) => document.getElementById(id);
+// inside the editor extension the panel is an iframe: tell the editor what to open / highlight
+const inEditor = window.parent !== window;
+const toEditor = (msg) => { if (inEditor) window.parent.postMessage({ cdev: 1, ...msg }, '*'); };
+let lastStepLoc = null;
+const stepAt = (loc) => { if (loc && loc !== lastStepLoc) { lastStepLoc = loc; toEditor({ type: 'step', loc }); } };
+document.addEventListener('click', (ev) => {
+  const el = ev.target.closest('.loc, [data-loc]');
+  const loc = el && (el.dataset.loc || el.textContent.trim());
+  if (inEditor && loc && /:\d+$/.test(loc)) { ev.stopPropagation(); toEditor({ type: 'open', loc }); }
+}, true);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const CAP = 20000;
+let events = [];
+let view = 'live';
+let liveSel = null, apiSel = null, varSel = null, varStep = null, playing = null;
+let dirty = true;
+let edges = [];
+
+try { const t = localStorage.getItem('cdev-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+$('theme').onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('cdev-theme', next); } catch {}
+};
+
+// ---------- data ----------
+let lastId = 0;
+function add(e) {
+  if (e.kind === '_clear') { events = []; liveSel = apiSel = varSel = null; dirty = true; return; }
+  if (e.id <= lastId) return; // already have it (initial snapshot overlaps the live stream)
+  lastId = e.id;
+  events.push(e);
+  if (events.length > CAP) events.splice(0, events.length - CAP);
+  dirty = true;
+}
+const init = window.__CDEV_INIT;
+// open the live stream after `load`, otherwise the page never finishes loading
+const afterLoad = (f) => (document.readyState === 'complete' ? f() : addEventListener('load', f, { once: true }));
+if (init) { init.events.forEach(add); edges = init.edges; afterLoad(connect); }
+else fetch('/api/events?limit=5000').then((r) => r.json()).then((a) => { a.forEach(add); afterLoad(connect); });
+function connect() {
+  const es = new EventSource('/stream');
+  es.onopen = () => {
+    $('dot').className = 'dot live'; $('conn').textContent = 'live';
+    // catch anything emitted between the snapshot and the stream opening
+    fetch('/api/events?since=' + lastId).then((r) => r.json()).then((a) => a.forEach(add)).catch(() => {});
+  };
+  es.onerror = () => { $('dot').className = 'dot'; $('conn').textContent = 'reconnecting'; };
+  es.onmessage = (m) => { try { add(JSON.parse(m.data)); } catch {} };
+}
+$('clear').onclick = () => fetch('/api/clear', { method: 'POST' });
+
+// ---------- formatting ----------
+const time = (ts) => { const d = new Date(ts); return d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0'); };
+const ms = (m) => m == null ? '' : m >= 1000 ? (m / 1000).toFixed(2) + 's' : m.toFixed(1) + 'ms';
+const clean = (v) => JSON.stringify(v, (k, x) => (k === '__class' || k === '__id' ? undefined : x));
+function compact(v, max = 120) {
+  let s;
+  if (v && typeof v === 'object' && v.__t) s = v.__t === 'undefined' ? 'undefined' : v.__t === 'function' ? 'ƒ ' + (v.name || '') : v.v !== undefined ? `${v.__t}(${v.v})` : JSON.stringify(v);
+  else s = clean(v);
+  s = s ?? String(v);
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+function level(e) {
+  if (e.kind === 'error') return 'error';
+  if (e.kind === 'log') return e.level || 'info';
+  if (e.kind === 'http' && (e.err || e.status >= 400)) return 'error';
+  if (e.kind === 'call' && e.err) return 'error';
+  return 'info';
+}
+function argsInline(e) {
+  return (e.args || []).map((a, i) => (e.params && e.params[i] ? e.params[i] + '=' : '') + compact(a, 40)).join(', ');
+}
+function summary(e) {
+  switch (e.kind) {
+    case 'log': return e.text || (e.args || []).map((a) => typeof a === 'string' ? a : compact(a)).join(' ');
+    case 'watch': return `${e.name} = ${compact(e.v, 140)}  : ${e.shape || ''}`;
+    case 'call': return `${e.name}(${argsInline(e)}) → ${e.err ? 'throws ' + e.err : e.ret !== undefined ? compact(e.ret, 80) : 'void'}  ${ms(e.ms)}`;
+    case 'http': return `${e.dir === 'in' ? '⇠' : '⇢'} ${e.method} ${e.url} → ${e.status ?? 'ERR ' + (e.err || '')}  ${ms(e.ms)}`;
+    case 'error': return e.msg;
+    case 'service': return `${e.name} listening on :${e.port}`;
+    default: return JSON.stringify(e);
+  }
+}
+function signature(e) {
+  const p = (e.argShapes || []).map((s, i) => (e.params && e.params[i] ? e.params[i] + ': ' : '') + s);
+  return `${e.name}(${p.join(', ')}) → ${e.retShape || 'void'}`;
+}
+function matches(e, q) {
+  if (!q) return true;
+  q = q.toLowerCase();
+  return e.kind === q || level(e) === q || (e.svc || '').toLowerCase().includes(q) || summary(e).toLowerCase().includes(q) || (e.loc || '').toLowerCase().includes(q);
+}
+function pretty(v) {
+  if (typeof v === 'string') { try { const j = JSON.parse(v); if (j && typeof j === 'object') return JSON.stringify(j, null, 2); } catch {} return v; }
+  return JSON.stringify(v, null, 2);
+}
+function hue(s) { let h = 7; for (const c of s || '') h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; }
+const svcStyle = (s) => `color: hsl(${hue(s)} 55% 48%)`;
+
+// ---------- Live ----------
+function renderLive() {
+  const q = $('q').value.trim();
+  const list = events.filter((e) => matches(e, q));
+  const box = $('live');
+  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  const shown = list.slice(-800);
+  if (!shown.length) {
+    box.innerHTML = `<div class="empty"><b>Waiting for events…</b><br><br>
+      Wrap your dev server: <code>cdev run -- npm run dev</code><br>
+      Add to any page: <code>&lt;script src="${location.origin}/cdev.js"&gt;&lt;/script&gt;</code><br>
+      Then use <code>cdev.w(value)</code> anywhere you'd <code>console.log</code>.</div>`;
+    return;
+  }
+  box.innerHTML = shown.map((e) => {
+    const lv = level(e);
+    return `<div class="row ${e.id === liveSel ? 'sel' : ''}" data-id="${e.id}"><span class="t">${time(e.ts)}</span><span class="svc" style="${svcStyle(e.svc)}">${esc(e.svc)}</span><span class="k k-${e.kind} lv-${lv}">${e.kind === 'log' ? lv.toUpperCase() : e.kind.toUpperCase()}</span><span class="lv-${lv}">${esc(summary(e).slice(0, 400))}</span>${e.loc ? `<span class="loc">${esc(e.loc)}</span>` : ''}</div>`;
+  }).join('');
+  if (atBottom && liveSel == null) box.scrollTop = box.scrollHeight;
+  const sel = events.find((e) => e.id === liveSel);
+  const d = $('live-detail');
+  d.hidden = !sel;
+  if (sel) {
+    const data = { ...sel };
+    ['id', 'ts', 'svc', 'kind', 'shape', 'argShapes', 'retShape', 'lang'].forEach((k) => delete data[k]);
+    const typeLine = sel.kind === 'call' ? signature(sel) : sel.kind === 'watch' ? 'type: ' + sel.shape : sel.argShapes ? 'args: (' + sel.argShapes.join(', ') + ')' : '';
+    d.innerHTML = `<div class="pane-title">${esc(sel.kind)} · ${esc(sel.svc)} · ${time(sel.ts)} <span style="margin-left:auto;cursor:pointer" id="close-d">✕</span></div>${typeLine ? `<div class="sig">${esc(typeLine)}</div>` : ''}<pre>${esc(pretty(data))}</pre>`;
+    $('close-d').onclick = () => { liveSel = null; dirty = true; };
+  }
+}
+$('live').onclick = (ev) => { const r = ev.target.closest('.row'); if (r) { liveSel = +r.dataset.id === liveSel ? null : +r.dataset.id; dirty = true; } };
+
+// ---------- Vars + data structures ----------
+function varGroups() {
+  const m = new Map();
+  for (const e of events) {
+    if (e.kind !== 'watch') continue;
+    const k = e.svc + '\u0000' + e.name;
+    if (!m.has(k)) m.set(k, { key: k, svc: e.svc, name: e.name, hist: [] });
+    m.get(k).hist.push(e);
+  }
+  return [...m.values()];
+}
+function renderVars() {
+  const q = $('q').value.trim().toLowerCase();
+  const groups = varGroups().filter((g) => !q || g.name.toLowerCase().includes(q) || g.svc.toLowerCase().includes(q));
+  if (!varSel && groups.length) varSel = groups[0].key;
+  $('var-list').innerHTML = groups.length ? groups.map((g) => {
+    const last = g.hist[g.hist.length - 1];
+    return `<div class="row ${g.key === varSel ? 'sel' : ''}" data-k="${esc(g.key)}"><span class="svc" style="${svcStyle(g.svc)};width:70px">${esc(g.svc)}</span><b>${esc(g.name)}</b> <span class="t">×${g.hist.length}</span>${last.ds ? `<span class="badge">${esc(last.ds)}</span> ` : ''}<span class="loc">${esc(last.shape || '')}</span></div>`;
+  }).join('') : `<div class="empty">No watched values yet.<br><br>JS/TS: <code>cdev.w(value)</code><br>Python: <code>cdev.w(value)</code><br>C++: <code>CDEV_W(expr)</code><br><br>Arrays, grids, linked lists, trees, graphs and maps are drawn as diagrams. Step through snapshots to watch an algorithm run.</div>`;
+  const g = groups.find((x) => x.key === varSel);
+  $('steps').hidden = !g || g.hist.length < 2;
+  if (!g) { $('var-view').innerHTML = ''; $('var-hist').innerHTML = ''; return; }
+  const n = g.hist.length;
+  const step = varStep == null ? n - 1 : Math.min(varStep, n - 1);
+  $('slider').max = n - 1; $('slider').value = step;
+  $('stepn').textContent = `${step + 1} / ${n}`;
+  const e = g.hist[step];
+  if (varStep != null || playing) stepAt(e.loc);
+  const prev = step > 0 ? g.hist[step - 1] : null;
+  const r = renderStructure(e.v, prev && prev.ds === e.ds ? prev.v : undefined, e.ds, g.name);
+  $('var-view').innerHTML = `<div class="ds"><div class="ds-meta">${e.ds ? `<span class="badge">${esc(e.ds)}</span>` : ''}<span>${esc(e.shape || '')}</span><span>${esc(e.loc || '')}</span><span>${time(e.ts)}</span>${r.note ? `<span class="ds-note">${esc(r.note)}</span>` : ''}</div>${r.html}</div>`;
+  let prevShape = null;
+  const rows = g.hist.map((h, i) => {
+    const norm = (x) => String(x || '').replace(/ \| null/g, '').replace(/: null/g, ': T');
+    const tc = prevShape && norm(prevShape) !== norm(h.shape) ? `<span class="tchg"> ⚠ type → ${esc(h.shape)}</span>` : '';
+    prevShape = h.shape;
+    return `<div class="row ${i === step ? 'sel' : ''}" data-i="${i}"><span class="t">${String(i + 1).padStart(4)}</span><span class="t">${time(h.ts)}</span>${esc(compact(h.v, 160))}${tc}</div>`;
+  });
+  $('var-hist').innerHTML = rows.reverse().join('');
+}
+$('var-list').onclick = (ev) => { const r = ev.target.closest('.row'); if (r) { varSel = r.dataset.k; varStep = null; stopPlay(); dirty = true; } };
+$('var-hist').onclick = (ev) => { const r = ev.target.closest('.row'); if (r) { varStep = +r.dataset.i; stopPlay(); dirty = true; } };
+$('slider').oninput = () => { varStep = +$('slider').value; stopPlay(); dirty = true; };
+const curLen = () => (varGroups().find((g) => g.key === varSel) || { hist: [] }).hist.length;
+$('prev').onclick = () => { const n = curLen(); varStep = Math.max(0, (varStep ?? n - 1) - 1); stopPlay(); dirty = true; };
+$('next').onclick = () => { const n = curLen(); const s = (varStep ?? n - 1) + 1; varStep = s >= n - 1 ? null : s; stopPlay(); dirty = true; };
+function stopPlay() { if (playing) { clearInterval(playing); playing = null; $('play').textContent = '▶ play'; } }
+$('play').onclick = () => {
+  if (playing) return stopPlay();
+  const n = curLen();
+  if (varStep == null || varStep >= n - 1) varStep = 0;
+  $('play').textContent = '❚❚ pause';
+  playing = setInterval(() => {
+    const n = curLen();
+    if (varStep >= n - 1) { varStep = null; stopPlay(); } else varStep++;
+    dirty = true;
+  }, 450);
+};
+
+const prim = (v) => v === null || ['string', 'number', 'boolean'].includes(typeof v);
+const ptext = (v) => v === null ? 'null' : typeof v === 'object' ? (v.__ref ? '↺' : '…') : String(v);
+const VAL_KEYS = ['val', 'value', 'data', 'key', 'v', 'item'];
+const NEXT_KEYS = ['next', 'nxt', 'link'];
+function valOf(o) {
+  for (const k of VAL_KEYS) if (k in o) return ptext(o[k]);
+  for (const [k, v] of Object.entries(o)) if (!k.startsWith('__') && prim(v)) return ptext(v);
+  return '·';
+}
+function unwrapRoot(v) {
+  if (v && typeof v === 'object' && !Array.isArray(v)) for (const k of ['head', 'root', 'first', 'top']) if (v[k] && typeof v[k] === 'object') return v[k];
+  return v;
+}
+function diffIdx(a, p) {
+  const ch = new Set();
+  if (!Array.isArray(p)) return { ch, note: '' };
+  for (let i = 0; i < a.length; i++) if (JSON.stringify(a[i]) !== JSON.stringify(p[i])) ch.add(i);
+  const c = [...ch];
+  let note = '';
+  if (a.length !== p.length) note = `length ${p.length} → ${a.length}`;
+  else if (c.length === 2 && JSON.stringify(p[c[0]]) === JSON.stringify(a[c[1]]) && JSON.stringify(p[c[1]]) === JSON.stringify(a[c[0]])) note = `swap [${c[0]}] ↔ [${c[1]}]`;
+  else if (c.length === 1) note = `[${c[0]}]: ${ptext(p[c[0]])} → ${ptext(a[c[0]])}`;
+  else if (c.length) note = `${c.length} cells changed`;
+  return { ch, note };
+}
+function cellsHtml(a, ch, ptrs = {}) {
+  return `<div class="cells">${a.map((v, i) => `<div class="cell"><span class="i">${i}</span><span class="v ${ch.has(i) ? 'ch' : ''}">${esc(ptext(v))}</span><span class="p">${esc((ptrs[i] || []).join(' '))}</span></div>`).join('')}${ptrs[a.length] ? `<div class="cell"><span class="i">${a.length}</span><span class="v" style="border-style:dashed;color:var(--faint)">end</span><span class="p">${esc(ptrs[a.length].join(' '))}</span></div>` : ''}</div>`;
+}
+
+function renderStructure(v, prev, kind, name) {
+  try {
+    switch (kind) {
+      case 'array': case 'heap': {
+        const { ch, note } = diffIdx(v, prev);
+        let html = cellsHtml(v, ch);
+        if (kind === 'heap') html += '<div class="ds-meta" style="margin-top:14px">as a tree — children of i at 2i+1, 2i+2</div>' + treeSvg(heapToTree(v, 0, ch));
+        return { html, note };
+      }
+      case 'array+pointers': {
+        const arrKey = Object.keys(v).find((k) => Array.isArray(v[k]));
+        const a = v[arrKey];
+        const ptrs = {}; const extras = [];
+        for (const [k, x] of Object.entries(v)) {
+          if (k === arrKey || k.startsWith('__')) continue;
+          if (Number.isInteger(x) && x >= -1 && x <= a.length) (ptrs[x] = ptrs[x] || []).push('↑' + k);
+          else extras.push(`${k}=${ptext(x)}`);
+        }
+        const { ch, note } = diffIdx(a, prev && prev[arrKey]);
+        return { html: `<div class="ds-meta"><b>${esc(arrKey)}</b></div>` + cellsHtml(a, ch, ptrs) + (extras.length ? `<div class="ds-meta">${esc(extras.join('  '))}</div>` : ''), note };
+      }
+      case 'matrix': {
+        let changed = 0;
+        const cols = v[0].length;
+        const head = `<tr><th></th>${Array.from({ length: cols }, (_, j) => `<th>${j}</th>`).join('')}</tr>`;
+        const body = v.map((r, i) => `<tr><th>${i}</th>${r.map((x, j) => {
+          const c = Array.isArray(prev) && prev[i] && JSON.stringify(prev[i][j]) !== JSON.stringify(x);
+          if (c) changed++;
+          const t = ptext(x);
+          return `<td class="${c ? 'ch' : ['0', 'false', '.', 'null', ''].includes(t) ? 'z' : ''}">${esc(t)}</td>`;
+        }).join('')}</tr>`).join('');
+        return { html: `<table class="grid">${head}${body}</table>`, note: changed ? `${changed} cells changed` : '' };
+      }
+      case 'linked list': {
+        let cur = unwrapRoot(v); const nodes = []; const ids = []; let tail = 'null'; let cyc = false; let doubly = false;
+        while (cur && typeof cur === 'object' && nodes.length < 200) {
+          if (cur.__ref) { const at = ids.indexOf(cur.__ref); tail = at >= 0 ? `↺ back to #${at}` : '↺ shared'; cyc = true; break; }
+          doubly = doubly || 'prev' in cur;
+          nodes.push(valOf(cur)); ids.push(cur.__id);
+          const nk = NEXT_KEYS.find((k) => k in cur);
+          cur = nk ? cur[nk] : null;
+        }
+        const arrow = doubly ? '⇄' : '→';
+        const html = `<div class="chain">${nodes.map((n, i) => `${i ? `<span class="arrow">${arrow}</span>` : ''}<span class="node"><span class="t" style="font-size:10px">#${i}</span>${esc(n)}</span>`).join('')}<span class="arrow">${arrow}</span><span class="${cyc ? 'cyc' : 't'}">${esc(tail)}</span></div>`;
+        return { html, note: cyc ? 'cycle detected' : `length ${nodes.length}${doubly ? ', doubly linked' : ''}` };
+      }
+      case 'binary tree': {
+        const t = toTree(unwrapRoot(v), (o) => [o.left, o.right], ['L', 'R']);
+        const vals = []; let size = 0;
+        (function inorder(o) { if (!o || typeof o !== 'object' || o.__ref) return; size++; inorder(o.left); const k = VAL_KEYS.find((k) => typeof o[k] === 'number'); if (k) vals.push(o[k]); inorder(o.right); })(unwrapRoot(v));
+        const bst = vals.length === size && vals.every((x, i) => i === 0 || vals[i - 1] <= x);
+        return { html: treeSvg(t), note: `size ${size}, height ${height(t)}${size > 1 && vals.length === size ? (bst ? ', valid BST' : ', not a BST') : ''}` };
+      }
+      case 'tree': {
+        const t = toTree(unwrapRoot(v), (o) => o.children || [], null, (o) => ('name' in o ? ptext(o.name) : valOf(o)));
+        return { html: treeSvg(t), note: `height ${height(t)}` };
+      }
+      case 'graph': return graphSvg(v);
+      case 'hash map': {
+        if (v.__t === 'Set') return { html: `<div class="chain">{ ${(v.values || []).map((x) => `<span class="node">${esc(ptext(x))}</span>`).join(' ')} }</div>`, note: `Set, size ${v.size}` };
+        const rows = (v.entries || []).map(([k, x]) => `<tr><td style="text-align:left"><b>${esc(ptext(k))}</b></td><td style="text-align:left">${esc(prim(x) ? ptext(x) : compact(x, 80))}</td></tr>`).join('');
+        return { html: `<table class="grid"><tr><th style="text-align:left">key</th><th style="text-align:left">value</th></tr>${rows}</table>`, note: `Map, size ${v.size}` };
+      }
+    }
+  } catch (err) { /* fall through to JSON */ }
+  return { html: `<pre style="padding:0">${esc(pretty(v))}</pre>`, note: '' };
+}
+
+// tree model: { label, tag, kids: [...], ch }
+function toTree(o, kidsOf, tags, labelOf = valOf, depth = 0) {
+  if (!o || typeof o !== 'object' || depth > 40) return null;
+  if (o.__ref) return { label: '↺', kids: [], ref: true };
+  const ks = kidsOf(o);
+  return { label: labelOf(o), kids: ks.map((k, i) => { const t = toTree(k, kidsOf, tags, labelOf, depth + 1); if (t && tags) t.tag = tags[i]; return t; }).filter((x, i) => tags ? true : x) };
+}
+function heapToTree(a, i, ch) {
+  if (i >= a.length) return null;
+  const kids = [heapToTree(a, 2 * i + 1, ch), heapToTree(a, 2 * i + 2, ch)];
+  return { label: ptext(a[i]), sub: i, ch: ch.has(i), kids: kids.some(Boolean) ? kids : [] };
+}
+function height(t) { return !t ? 0 : 1 + Math.max(0, ...t.kids.map(height)); }
+function treeSvg(root) {
+  if (!root) return '<div class="t">empty</div>';
+  // leaves get consecutive x slots; parents sit over their children. Null binary slots keep space.
+  let slot = 0; const nodes = []; const edges = [];
+  (function lay(t, d) {
+    if (!t) { slot += 0.5; return null; }
+    const xs = t.kids.map((k) => lay(k, d + 1));
+    const real = xs.filter((x) => x != null);
+    const x = real.length ? (Math.min(...real) + Math.max(...real)) / 2 : slot++;
+    t.x = x; t.y = d;
+    nodes.push(t);
+    t.kids.forEach((k) => { if (k) edges.push([t, k]); });
+    return x;
+  })(root, 0);
+  const W = 56, H = 58, R = 17;
+  const w = (Math.max(...nodes.map((n) => n.x)) + 1) * W + 20;
+  const h = (Math.max(...nodes.map((n) => n.y)) + 1) * H + 10;
+  const px = (n) => 10 + n.x * W + W / 2, py = (n) => 10 + n.y * H + R;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="max-width:100%;height:auto">${
+    edges.map(([a, b]) => `<line class="e" x1="${px(a)}" y1="${py(a)}" x2="${px(b)}" y2="${py(b)}"/>${b.tag ? `<text class="lbl" x="${(px(a) + px(b)) / 2 + (b.tag === 'L' ? -10 : 4)}" y="${(py(a) + py(b)) / 2}">${b.tag}</text>` : ''}`).join('')
+  }${nodes.map((n) => `<circle class="n ${n.ch ? 'ch' : ''}" cx="${px(n)}" cy="${py(n)}" r="${R}" ${n.ref ? 'style="stroke:var(--err)"' : ''}/><text x="${px(n)}" y="${py(n) + 4}" text-anchor="middle">${esc(String(n.label).slice(0, 5))}</text>${n.sub != null ? `<text class="lbl" x="${px(n)}" y="${py(n) + R + 11}" text-anchor="middle">[${n.sub}]</text>` : ''}`).join('')}</svg>`;
+}
+function graphSvg(v) {
+  const adj = Array.isArray(v) ? v.map((r, i) => [String(i), r.map(String)]) : Object.entries(v).filter(([k]) => !k.startsWith('__')).map(([k, r]) => [k, (r || []).map(String)]);
+  const keys = adj.map(([k]) => k);
+  const n = keys.length;
+  const S = Math.max(260, Math.min(620, n * 46));
+  const cx = S / 2, cy = S / 2, rad = S / 2 - 30;
+  const pos = Object.fromEntries(keys.map((k, i) => [k, [cx + rad * Math.cos((2 * Math.PI * i) / n - Math.PI / 2), cy + rad * Math.sin((2 * Math.PI * i) / n - Math.PI / 2)]]));
+  const set = new Set(adj.flatMap(([k, ns]) => ns.map((x) => k + '→' + x)));
+  const directed = [...set].some((e) => { const [a, b] = e.split('→'); return !set.has(b + '→' + a); });
+  let edges = 0; const drawn = new Set(); let lines = '';
+  for (const [k, ns] of adj) for (const x of ns) {
+    if (!pos[x]) continue;
+    const key = directed ? k + '→' + x : [k, x].sort().join('—');
+    if (drawn.has(key)) continue; drawn.add(key); edges++;
+    const [x1, y1] = pos[k], [x2, y2] = pos[x];
+    const d = Math.hypot(x2 - x1, y2 - y1) || 1, ux = (x2 - x1) / d, uy = (y2 - y1) / d;
+    lines += `<line class="e" x1="${x1 + ux * 16}" y1="${y1 + uy * 16}" x2="${x2 - ux * 18}" y2="${y2 - uy * 18}" ${directed ? 'marker-end="url(#ah)"' : ''}/>`;
+  }
+  const html = `<svg width="${S}" height="${S}" viewBox="0 0 ${S} ${S}" style="max-width:100%;height:auto"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--faint)"/></marker></defs>${lines}${keys.map((k) => `<circle class="n" cx="${pos[k][0]}" cy="${pos[k][1]}" r="15"/><text x="${pos[k][0]}" y="${pos[k][1] + 4}" text-anchor="middle">${esc(k.slice(0, 4))}</text>`).join('')}</svg>`;
+  return { html, note: `${n} nodes, ${edges} edges, ${directed ? 'directed' : 'undirected'}` };
+}
+
+// ---------- API ----------
+let apiMode = 'calls', apiCalls = [], apiEps = [], apiBusy = false;
+const statusCls = (st, err) => (err && !st ? 'sE' : 's' + String(st || 0)[0]);
+async function renderApi() {
+  if (apiBusy) { dirty = true; return; }
+  apiBusy = true;
+  try {
+    [apiCalls, apiEps] = await Promise.all([fetch('/api/calls').then((r) => r.json()), fetch('/api/endpoints').then((r) => r.json())]);
+  } catch { apiBusy = false; return; }
+  apiBusy = false;
+  $('api-calls').classList.toggle('on', apiMode === 'calls');
+  $('api-eps').classList.toggle('on', apiMode === 'eps');
+  const q = $('q').value.trim().toLowerCase();
+  const box = $('api-list');
+  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  if (apiMode === 'calls') {
+    const list = apiCalls.filter((c) => !q || `${c.method} ${c.path} ${c.from} ${c.endpoint}`.toLowerCase().includes(q));
+    box.innerHTML = list.length ? list.slice(-500).map((c) => `<div class="row ${c.id === apiSel ? 'sel' : ''}" data-id="${c.id}"><span class="t">${time(c.ts)}</span><b style="display:inline-block;width:14px;color:var(--cyan)">${c.paired === 'cid' ? '⇄' : c.paired ? '≈' : ''}</b><b style="display:inline-block;width:52px">${esc(c.method)}</b><b class="${statusCls(c.status, c.err)}" style="display:inline-block;width:36px">${c.status ?? 'ERR'}</b><span class="t" style="display:inline-block;width:64px;text-align:right">${ms(c.ms)}</span> ${esc(c.path)}<span class="loc">${esc(c.from)} → ${esc(c.endpoint)}</span></div>`).join('')
+      : '<div class="empty">No HTTP traffic yet.</div>';
+    if (atBottom && apiSel == null) box.scrollTop = box.scrollHeight;
+    const c = apiCalls.find((x) => x.id === apiSel) || list[list.length - 1];
+    $('api-detail').innerHTML = c ? callDetail(c) : '';
+  } else {
+    const list = apiEps.filter((e) => !q || `${e.method} ${e.route} ${e.endpoint}`.toLowerCase().includes(q));
+    const key = (e) => `${e.endpoint} ${e.method} ${e.route}`;
+    box.innerHTML = list.length ? list.map((e) => `<div class="row ${key(e) === apiEpSel ? 'sel' : ''}" data-k="${esc(key(e))}"><b style="display:inline-block;width:52px">${esc(e.method)}</b>${esc(e.route)}<span class="loc">${esc(e.endpoint)} · ×${e.count} · ${ms(e.avg_ms)}</span> ${Object.entries(e.statuses).map(([s, n]) => `<span class="${statusCls(+s, s === 'ERR')}">${esc(s)}×${n}</span>`).join(' ')}</div>`).join('')
+      : '<div class="empty">No endpoints yet.</div>';
+    const e = list.find((x) => key(x) === apiEpSel) || list[0];
+    $('api-detail').innerHTML = e ? endpointDetail(e) : '';
+  }
+}
+function sideHtml(s) {
+  if (!s) return '<pre class="t">(none)</pre>';
+  const h = Object.entries(s.headers || {}).map(([k, v]) => `<div class="hdr"><b>${esc(k)}:</b> ${esc(v)}</div>`).join('');
+  return h + `<pre>${s.body == null ? '<span class="t">(no body)</span>' : esc(pretty(s.body))}</pre>`;
+}
+function callDetail(c) {
+  const part = (e, side) => {
+    const who = side === 'client'
+      ? `client · ${esc(e.svc)}${e.caller ? ` <small>in ${esc(e.caller)}()</small>` : ''}`
+      : `server · ${esc(e.svc)}${e.handler ? ` <small>handler ${esc(e.handler)}</small>` : ''}`;
+    const sc = statusCls(e.status, e.err);
+    return `<div class="side"><div class="side-h">${who}</div><div class="req-res">
+      <div><div class="pane-title">${side === 'client' ? 'Request sent' : 'Request received'}</div><div class="big">${esc(e.method)} <span style="font-weight:400">${esc(e.url)}</span></div>${sideHtml(e.req)}</div>
+      <div><div class="pane-title">${side === 'client' ? 'Response received' : 'Response sent'}</div><div class="big ${sc}">${e.status ?? 'ERR ' + esc(e.err || '')} <span class="t" style="font-weight:400">${ms(e.ms)}</span></div>${sideHtml(e.res)}</div></div></div>`;
+  };
+  const note = !c.client ? '<div class="kv t">client side not instrumented (e.g. curl) — showing the server side</div>'
+    : !c.server ? '<div class="kv t">server side not instrumented or external — showing the client side</div>' : '';
+  return note + (c.client ? part(c.client, 'client') : '') + (c.server ? part(c.server, 'server') : '');
+}
+function endpointDetail(e) {
+  const recent = e.recent.slice().reverse().slice(0, 15).map((id) => apiCalls.find((c) => c.id === id)).filter(Boolean);
+  const shapes = (l) => (l.length ? l.map((s) => `<div class="shape">${esc(s)}</div>`).join('') : '<div class="shape t">(none seen)</div>');
+  return `<div class="big" style="padding-top:14px">${esc(e.method)} ${esc(e.route)} <span class="t" style="font-weight:400">on ${esc(e.endpoint)}</span></div>
+    <div class="kv"><b>calls</b>${e.count} · ${e.errors} errors · avg ${ms(e.avg_ms)} · max ${ms(e.max_ms)}</div>
+    <div class="kv"><b>statuses</b>${Object.entries(e.statuses).map(([s, n]) => `<span class="${statusCls(+s, s === 'ERR')}">${esc(s)}×${n}</span>`).join(' ')}</div>
+    <div class="kv"><b>called by</b>${esc(e.callers.join(', '))}</div>
+    <div class="kv"><b>handled by</b>${esc(e.handlers.join(', ') || '–')}</div>
+    <div class="pane-title">Request body type</div>${shapes(e.req_shapes)}
+    <div class="pane-title">Response body type</div>${shapes(e.res_shapes)}
+    <div class="pane-title">Recent calls</div>
+    ${recent.map((c) => { const s = c.server || c.client; const body = s && s.res && s.res.body; return `<div class="row" data-call="${c.id}"><span class="t">${time(c.ts)}</span><b class="${statusCls(c.status, c.err)}" style="display:inline-block;width:36px">${c.status ?? 'ERR'}</b><span class="t" style="display:inline-block;width:64px">${ms(c.ms)}</span>${esc(c.path)} <span class="loc">${esc(String(body ?? '').slice(0, 80))}</span></div>`; }).join('')}`;
+}
+let apiEpSel = null;
+$('api-calls').onclick = () => { apiMode = 'calls'; dirty = true; };
+$('api-eps').onclick = () => { apiMode = 'eps'; dirty = true; };
+$('api-list').onclick = (ev) => {
+  const r = ev.target.closest('.row'); if (!r) return;
+  if (r.dataset.k) apiEpSel = r.dataset.k; else apiSel = +r.dataset.id === apiSel ? null : +r.dataset.id;
+  dirty = true;
+};
+$('api-detail').onclick = (ev) => { const r = ev.target.closest('[data-call]'); if (r) { apiSel = +r.dataset.call; apiMode = 'calls'; dirty = true; } };
+
+// ---------- Map ----------
+async function loadEdges() { try { edges = await (await fetch('/api/edges')).json(); if (view === 'map') renderMap(); } catch {} }
+setInterval(() => { if (view === 'map') loadEdges(); }, 2000);
+function renderMap() {
+  const svg = $('map-svg');
+  const names = [...new Set(edges.flatMap((e) => [e.from, e.to]))];
+  if (!names.length) { svg.innerHTML = ''; $('edge-list').innerHTML = '<div class="empty">Nothing talking to anything yet. HTTP traffic and traced calls show up here.</div>'; return; }
+  // layer nodes by longest path from sources so flow reads left → right
+  const depth = Object.fromEntries(names.map((n) => [n, 0]));
+  for (let it = 0; it < names.length; it++) for (const e of edges) if (e.from !== e.to && depth[e.to] < depth[e.from] + 1 && depth[e.from] + 1 < names.length) depth[e.to] = depth[e.from] + 1;
+  const layers = [];
+  names.forEach((n) => (layers[depth[n]] = layers[depth[n]] || []).push(n));
+  // node label: the part after "svc·" (function / route), service shown above it
+  const short = (n) => (n.includes('·') ? n.split('·').slice(1).join('·') : n);
+  const boxW = (n) => Math.min(240, Math.max(76, short(n).length * 7.3 + 22));
+  const colW = layers.map((L) => Math.max(...L.map(boxW)));
+  const GAP = 110, ROW = 64;
+  const H = Math.max(...layers.map((L) => L.length)) * ROW + 40;
+  const W = colW.reduce((a, b) => a + b, 0) + GAP * (layers.length - 1) + 60;
+  const pos = {};
+  let x0 = 30;
+  layers.forEach((L, i) => {
+    const top = (H - L.length * ROW) / 2 + ROW / 2;
+    L.forEach((n, j) => { pos[n] = [x0 + colW[i] / 2, top + j * ROW]; });
+    x0 += colW[i] + GAP;
+  });
+  const maxC = Math.max(1, ...edges.map((e) => e.count));
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.style.maxHeight = H + 'px';
+  svg.innerHTML = `<defs><marker id="mh" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--dim)"/></marker></defs>` +
+    edges.map((e) => {
+      const [ax, ay] = pos[e.from], [bx, by] = pos[e.to];
+      const self = e.from === e.to;
+      const x1 = ax + boxW(e.from) / 2, x2 = bx - boxW(e.to) / 2;
+      const col = e.errors ? 'var(--err)' : e.via === 'call' ? 'var(--violet)' : 'var(--dim)';
+      const w = 1.2 + 2.5 * e.count / maxC;
+      const label = `×${e.count} · ${ms(e.avg_ms)}${e.errors ? ' · ' + e.errors + ' err' : ''}`;
+      if (self) {
+        const lx = ax + boxW(e.from) / 2;
+        return `<path class="e" d="M${lx},${ay - 6} C${lx + 46},${ay - 40} ${lx + 46},${ay + 40} ${lx},${ay + 6}" style="stroke:${col};stroke-width:${w}" marker-end="url(#mh)"/><text class="lbl" x="${lx + 40}" y="${ay + 4}">${label}</text>`;
+      }
+      const mx = (x1 + x2) / 2;
+      return `<path class="e" d="M${x1},${ay} C${mx},${ay} ${mx},${by} ${x2},${by}" style="stroke:${col};stroke-width:${w}" marker-end="url(#mh)"/><text class="lbl" x="${mx}" y="${(ay + by) / 2 - 6}" text-anchor="middle">${label}</text>`;
+    }).join('') +
+    names.map((n) => {
+      const [x, y] = pos[n]; const svc = n.split('·')[0]; const w = boxW(n);
+      const sub = n.includes('·') ? `<text class="lbl" x="${x - w / 2 + 2}" y="${y - 18}">${esc(svc)}</text>` : '';
+      const s = short(n);
+      return `${sub}<rect x="${x - w / 2}" y="${y - 14}" width="${w}" height="28" rx="6" class="n" style="stroke:hsl(${hue(svc)} 55% 48%)"/><text x="${x}" y="${y + 4}" text-anchor="middle">${esc(s.length > 30 ? s.slice(0, 29) + '…' : s)}</text><title>${esc(n)}</title>`;
+    }).join('');
+  $('edge-list').innerHTML = edges.map((e) => `<div class="edge"><b style="${svcStyle(e.from.split('·')[0])}">${esc(e.from)}</b> ${e.via === 'call' ? 'ƒ→' : '→'} <b style="${svcStyle(e.to.split('·')[0])}">${esc(e.to)}</b><br>×${e.count} · avg ${ms(e.avg_ms)}${e.errors ? ` · <span class="lv-error">${e.errors} err</span>` : ''}<div class="lbls">${e.labels.map(([l, c]) => esc(l) + ' ×' + c).join(' · ')}</div></div>`).join('');
+}
+
+// ---------- Memory ----------
+let memStep = null, memPlaying = null, memSteps = 0, memBusy = false;
+async function renderMem() {
+  if (memBusy) { dirty = true; return; }
+  memBusy = true;
+  let d;
+  try { d = await (await fetch('/api/memory' + (memStep == null ? '' : '?step=' + memStep))).json(); } catch { memBusy = false; return; }
+  memBusy = false;
+  memSteps = d.steps;
+  const wrap = $('mem-wrap');
+  if (!d.steps) {
+    $('mem-steps').hidden = true; $('mem-note').textContent = '';
+    wrap.innerHTML = `<div class="empty" style="grid-column:1/-1">No memory info yet.<br><br>C++: <code>CDEV_W(v)</code> · Rust: <code>cdev_w!(&v)</code> · Python / JS: <code>cdev.w(v)</code><br><br>Each watch records where the value lives (stack / heap), its size, what it points at, and its heap buffer. Step through to see reallocations, moves and shared objects.</div>`;
+    return;
+  }
+  $('mem-steps').hidden = false;
+  $('mslider').max = d.steps - 1; $('mslider').value = d.step;
+  $('mstepn').textContent = `${d.step + 1} / ${d.steps}`;
+  $('mem-note').textContent = d.note;
+  if (memStep != null || memPlaying) stepAt(d.loc);
+  const handle = Object.fromEntries(d.blocks.map((b, i) => [b.addr, i + 1]));
+  const rg = (r) => `<span class="rg rg-${esc(r)}">${esc(r)}</span>`;
+  const names = d.names.map((n) => {
+    const where = n.addr && ['stack', 'static', 'value'].includes(n.region) ? `${esc(n.addr)}${rg(n.region)}`
+      : n.inside ? `${esc(n.addr)}${rg('heap')} inside #${handle[n.inside[0]] ?? '?'} +${n.inside[1]}` : `name${rg('heap')}`;
+    return `<div class="mbox ${n.changed ? 'ch' : ''}" data-name="${esc(n.name)}"><span class="nm">${esc(n.name)}</span><span class="ty">${esc(n.ty)}</span>
+      <div class="ad">${where}${n.size != null ? ' · ' + n.size + ' B' : ''}${n.refs != null ? ` · <b style="color:var(--warn)">refs ${n.refs}</b>` : ''}${n.to && handle[n.to] ? ` · → #${handle[n.to]}` : ''}${n.to_name ? ' · → ' + esc(n.to_name) : ''}</div>
+      <div class="vl">${esc(n.value)}</div></div>`;
+  }).join('');
+  const blocks = d.blocks.map((b, i) => {
+    let body = '';
+    if (b.kind === 'buffer') {
+      const cap = b.cap ?? b.cells.length;
+      const shown = Math.min(cap, 64);
+      body = `<div class="bytes">${Array.from({ length: shown }, (_, k) => k < b.cells.length ? `<span>${esc(b.cells[k])}</span>` : '<span class="free">·</span>').join('')}${cap > shown ? '<span class="free">…</span>' : ''}</div>
+        <div class="ad">len ${b.len ?? 0} / cap ${b.cap ?? 0} × ${b.elem ?? '?'} B = ${b.size ?? '?'} B${b.region === 'inline' ? ' — stored inside the object (small-string optimisation)' : ''}</div>`;
+    } else if (b.cells.length) body = `<div class="vl">${esc(b.cells.join(' '))}</div>`;
+    const links = b.links.length ? `<div class="lnk">${b.links.map(([l, t]) => `${esc(l)} → #${handle[t] ?? '?'}`).join(' &nbsp; ')}</div>` : '';
+    return `<div class="mbox ${b.changed ? 'ch' : ''}" data-addr="${esc(b.addr)}"><span class="nm" style="color:var(--violet)">#${i + 1}</span><span class="ty" style="color:var(--dim)">${esc(b.owners.join(', '))}</span>${b.shared > 1 ? `<span class="sharedb">shared ×${b.shared}</span>` : ''}
+      <div class="ad">${esc(b.addr)}${rg(b.region)}${b.size != null && b.kind !== 'buffer' ? ' · ' + b.size + ' B' : ''}${b.inside ? ` · inside #${handle[b.inside[0]] ?? '?'} +${b.inside[1]}` : ''}</div>${body}${links}</div>`;
+  }).join('');
+  wrap.innerHTML = `<svg id="mem-arrows"><defs><marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--violet)"/></marker></defs></svg>
+    <div class="mem-col"><h4>Stack · names</h4>${names}</div><div class="mem-col"><h4>Heap · by address</h4>${blocks || '<div class="t">nothing on the heap yet</div>'}</div>`;
+  // arrows: name → block (right edge → left edge), name → name and block → block (loop on the side)
+  const base = wrap.getBoundingClientRect();
+  const box = (sel) => { const el = wrap.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return { l: r.left - base.left, r: r.right - base.left, t: r.top - base.top, m: r.top - base.top + Math.min(22, r.height / 2) }; };
+  const css = (s) => (window.CSS && CSS.escape ? CSS.escape(s) : s);
+  let paths = '';
+  for (const n of d.names) {
+    const a = box(`[data-name="${css(n.name)}"]`);
+    if (!a) continue;
+    if (n.to_name) {
+      const b = box(`[data-name="${css(n.to_name)}"]`);
+      if (b) paths += `<path d="M${a.l},${a.m} C${a.l - 50},${a.m} ${b.l - 50},${b.m} ${b.l},${b.m}" marker-end="url(#ma)"/>`;
+    } else if (n.to) {
+      const b = box(`[data-addr="${css(n.to)}"]`);
+      if (b) paths += `<path d="M${a.r},${a.m} C${a.r + 50},${a.m} ${b.l - 50},${b.m} ${b.l},${b.m}" marker-end="url(#ma)"/>`;
+    }
+  }
+  for (const bl of d.blocks) {
+    const a = box(`[data-addr="${css(bl.addr)}"]`);
+    if (!a) continue;
+    for (const [, t] of bl.links) {
+      const b = box(`[data-addr="${css(t)}"]`);
+      const shared = (d.blocks.find((x) => x.addr === t) || {}).shared > 1;
+      if (b && t !== bl.addr) paths += `<path class="${shared ? 'al' : ''}" d="M${a.r},${a.m} C${a.r + 60},${a.m} ${b.r + 60},${b.m} ${b.r},${b.m}" marker-end="url(#ma)"/>`;
+    }
+  }
+  $('mem-arrows').insertAdjacentHTML('beforeend', paths);
+}
+function stopMemPlay() { if (memPlaying) { clearInterval(memPlaying); memPlaying = null; $('mplay').textContent = '▶ play'; } }
+$('mslider').oninput = () => { memStep = +$('mslider').value; stopMemPlay(); dirty = true; };
+$('mprev').onclick = () => { memStep = Math.max(0, (memStep ?? memSteps - 1) - 1); stopMemPlay(); dirty = true; };
+$('mnext').onclick = () => { const s = (memStep ?? memSteps - 1) + 1; memStep = s >= memSteps - 1 ? null : s; stopMemPlay(); dirty = true; };
+$('mplay').onclick = () => {
+  if (memPlaying) return stopMemPlay();
+  if (memStep == null || memStep >= memSteps - 1) memStep = 0;
+  $('mplay').textContent = '❚❚ pause';
+  memPlaying = setInterval(() => { if (memStep >= memSteps - 1) { memStep = null; stopMemPlay(); } else memStep++; dirty = true; }, 600);
+};
+
+// ---------- shell ----------
+function setView(v) {
+  view = v;
+  if (location.hash.split(':')[0] !== '#' + v) history.replaceState(null, '', '#' + v);
+  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+  document.querySelectorAll('.view').forEach((s) => s.classList.toggle('on', s.id === 'v-' + v));
+  if (v === 'map') loadEdges();
+  dirty = true;
+}
+// deep links: #api, #map, #vars, #vars:bubbleSort, #vars:bst@3 (step 3)
+{
+  const [v, rest] = location.hash.slice(1).split(':');
+  if (['live', 'vars', 'api', 'map', 'mem'].includes(v)) {
+    if (v === 'vars' && rest) {
+      const [name, step] = rest.split('@');
+      const g = varGroups().find((x) => x.name === decodeURIComponent(name));
+      if (g) { varSel = g.key; if (step) varStep = Math.max(0, +step - 1); }
+    }
+    setView(v);
+  }
+}
+$('tabs').onclick = (ev) => { const b = ev.target.closest('button'); if (b) setView(b.dataset.v); };
+$('q').oninput = () => { dirty = true; };
+document.addEventListener('keydown', (ev) => {
+  if (ev.target.tagName === 'INPUT') { if (ev.key === 'Escape') ev.target.blur(); return; }
+  if ('12345'.includes(ev.key)) setView(['live', 'vars', 'api', 'map', 'mem'][+ev.key - 1]);
+  else if (ev.key === '/') { ev.preventDefault(); $('q').focus(); }
+  else if (view === 'vars' && ev.key === 'ArrowLeft') $('prev').click();
+  else if (view === 'vars' && ev.key === 'ArrowRight') $('next').click();
+  else if (view === 'vars' && ev.key === ' ') { ev.preventDefault(); $('play').click(); }
+  else if (view === 'api' && ev.key === 'e') { apiMode = apiMode === 'calls' ? 'eps' : 'calls'; dirty = true; }
+  else if (view === 'mem' && ev.key === 'ArrowLeft') $('mprev').click();
+  else if (view === 'mem' && ev.key === 'ArrowRight') $('mnext').click();
+  else if (view === 'mem' && ev.key === ' ') { ev.preventDefault(); $('mplay').click(); }
+  else if (ev.key === 'Escape') { liveSel = apiSel = null; dirty = true; }
+});
+(function loop() {
+  if (dirty) {
+    dirty = false;
+    $('count').textContent = events.length + ' events';
+    if (view === 'live') renderLive(); else if (view === 'vars') renderVars(); else if (view === 'api') renderApi(); else if (view === 'mem') renderMem();
+  }
+  setTimeout(() => requestAnimationFrame(loop), 100);
+})();
+})();
+</script>
+</body>
+</html>

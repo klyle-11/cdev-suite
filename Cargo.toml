@@ -1,0 +1,31 @@
+[package]
+name = "cdev"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight dev-time observability sidecar: watch values, types, data structures, logs, API calls and call graphs across JS/TS, Python, C++, Rust, Go and PHP."
+autoexamples = false  # examples/ are demo apps for `cdev watch`, not cargo examples
+
+[[bin]]
+name = "cdev"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+oxc_allocator = "=0.120.0"
+oxc_ast = "=0.120.0"
+oxc_ast_visit = "=0.120.0"
+oxc_parser = "=0.120.0"
+oxc_span = "=0.120.0"
+oxc_syntax = "=0.120.0"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+ratatui = "0.30"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "process", "io-util", "signal", "fs"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

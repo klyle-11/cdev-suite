@@ -1,0 +1,38 @@
+{
+  "name": "cdev",
+  "displayName": "cdev — see what your code does",
+  "description": "Inline values, auto-watch, data-structure and memory views, API calls and a call map, powered by the cdev sidecar.",
+  "version": "0.1.0",
+  "publisher": "cdev-local",
+  "license": "MIT",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Debuggers", "Visualization", "Other"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "cdev.autoWatchFile", "title": "Auto-watch this file", "category": "cdev", "icon": "$(eye)" },
+      { "command": "cdev.watchFile", "title": "Watch this file (re-run on save)", "category": "cdev" },
+      { "command": "cdev.runCommand", "title": "Run a command under cdev…", "category": "cdev" },
+      { "command": "cdev.attach", "title": "Attach to a running cdev", "category": "cdev" },
+      { "command": "cdev.showPanel", "title": "Show panel", "category": "cdev" },
+      { "command": "cdev.stop", "title": "Stop", "category": "cdev" },
+      { "command": "cdev.toggleInline", "title": "Toggle inline values", "category": "cdev" },
+      { "command": "cdev.clear", "title": "Clear values", "category": "cdev" }
+    ],
+    "menus": {
+      "editor/title": [
+        { "command": "cdev.autoWatchFile", "when": "resourceExtname =~ /\\.(py|js|mjs|cjs|ts|mts|tsx)$/", "group": "navigation" }
+      ]
+    },
+    "configuration": {
+      "title": "cdev",
+      "properties": {
+        "cdev.path": { "type": "string", "default": "cdev", "description": "Path to the cdev binary." },
+        "cdev.port": { "type": "number", "default": 4400, "description": "Sidecar port (pages use port+1)." },
+        "cdev.inlineValues": { "type": "boolean", "default": true, "description": "Show the latest values at the end of lines." },
+        "cdev.codeLens": { "type": "boolean", "default": true, "description": "Show '▶ auto-watch' above functions." }
+      }
+    }
+  }
+}
