@@ -10,10 +10,11 @@ A thin client over the `cdev` sidecar (install it first: `cargo install --path .
 - **Panel**: the full cdev panel (Live · Vars · API · Map · Mem) opens beside your code.
   - Clicking a `file:line` location opens it.
   - Stepping in **Vars** / **Mem** (← → / play) highlights the line that caused each step.
+- **Static view** (JS, TS; nothing runs and no sidecar is needed): a CodeLens above each function says what it calls, what calls it and what it changes (`calls 2 · called by main · changes its input`). Hovering the function's first line gives the details, and **Explain this file** (title bar, or click a lens) opens the whole report beside the code.
 - **Run a command under cdev…**, e.g. `npm run dev`.
 - **Attach to a running cdev**: attaching is automatic if one is already running on the configured port.
 
-Settings: `cdev.path`, `cdev.port`, `cdev.inlineValues`, `cdev.codeLens`.
+Settings: `cdev.path`, `cdev.port`, `cdev.inlineValues`, `cdev.codeLens`, `cdev.staticLens`.
 
 ## Install (local)
 

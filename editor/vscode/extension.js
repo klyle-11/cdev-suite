@@ -7,7 +7,7 @@ const vscode = require('vscode');
 const cp = require('child_process');
 const http = require('http');
 const path = require('path');
-const { lineText, locKey } = require('./format');
+const { lineText, locKey, fnMarkdown } = require('./format');
 
 let proc = null;          // cdev child process we started (null when attached / idle)
 let root = null;          // cdev's working directory: `loc` paths are relative to it
@@ -20,6 +20,9 @@ let inlineOn = true;
 // absolute file → Map(line → { text, events: [] })
 const values = new Map();
 const lastByName = new Map(); // watch name → previous value (to show what changed)
+const STATIC_LANGS = ['javascript', 'typescript', 'typescriptreact', 'javascriptreact'];
+// document uri → { version, promise of the static report, good: last report that parsed }
+const reports = new Map();
 
 const valueDeco = vscode.window.createTextEditorDecorationType({
   after: { margin: '0 0 0 2.5em', color: new vscode.ThemeColor('editorCodeLens.foreground'), fontStyle: 'italic' },
@@ -56,9 +59,12 @@ function activate(context) {
   cmd('cdev.stop', stop);
   cmd('cdev.toggleInline', () => { inlineOn = !inlineOn; refresh(); });
   cmd('cdev.clear', () => { values.clear(); lastByName.clear(); refresh(); post('/api/clear'); });
+  cmd('cdev.explainFile', explainFile);
 
   context.subscriptions.push(
     vscode.languages.registerHoverProvider({ scheme: 'file' }, { provideHover }),
+    vscode.languages.registerHoverProvider(STATIC_LANGS.map((language) => ({ language })), { provideHover: provideStaticHover }),
+    vscode.workspace.onDidCloseTextDocument((doc) => reports.delete(doc.uri.toString())),
     vscode.languages.registerCodeLensProvider(
       [{ language: 'python' }, { language: 'javascript' }, { language: 'typescript' }, { language: 'typescriptreact' }, { language: 'javascriptreact' }],
       { provideCodeLenses },
@@ -244,9 +250,16 @@ const FN_RE = [
   /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function|\([^)]*\)\s*(?::[^=]+)?=>|[A-Za-z_$][\w$]*\s*=>)/, // const f = (...) =>
 ];
 
-function provideCodeLenses(doc) {
+async function provideCodeLenses(doc) {
   if (cfg().get('codeLens') === false) return [];
   const lenses = [];
+  // what each function does, read from the source (nothing runs)
+  const r = cfg().get('staticLens') === false ? null : await report(doc);
+  for (const f of r ? r.fns : []) {
+    if (f.kind === 'module') continue;
+    const range = new vscode.Range(f.line - 1, 0, f.line - 1, 0);
+    lenses.push(new vscode.CodeLens(range, { title: f.lens, tooltip: f.summary, command: 'cdev.explainFile', arguments: [doc.uri, f.signature] }));
+  }
   for (let i = 0; i < doc.lineCount; i++) {
     const text = doc.lineAt(i).text;
     for (const re of FN_RE) {
@@ -259,6 +272,57 @@ function provideCodeLenses(doc) {
     }
   }
   return lenses;
+}
+
+// ---------------------------------------------------------------- static view
+
+// Runs `cdev explain` on the editor's text (saved or not). The file is read, never run,
+// and no sidecar is needed.
+function explain(doc, flag) {
+  return new Promise((resolve) => {
+    const child = cp.spawn(cfg().get('path') || 'cdev', ['explain', flag, '--name', doc.uri.fsPath]);
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => resolve(code === 0 ? out : null));
+    child.stdin.on('error', () => {});
+    child.stdin.end(doc.getText());
+  });
+}
+
+// The static report for a document, analysed once per edit. While the text doesn't
+// parse (mid-typing), the last report that did is kept.
+function report(doc) {
+  if (!STATIC_LANGS.includes(doc.languageId)) return Promise.resolve(null);
+  const key = doc.uri.toString();
+  const hit = reports.get(key);
+  if (hit && hit.version === doc.version) return hit.promise;
+  const entry = { version: doc.version, good: hit && hit.good };
+  entry.promise = explain(doc, '--json').then((out) => {
+    try { if (out) entry.good = JSON.parse(out); } catch { /* keep the last good one */ }
+    return entry.good || null;
+  });
+  reports.set(key, entry);
+  return entry.promise;
+}
+
+async function provideStaticHover(doc, pos) {
+  const r = await report(doc);
+  const f = r && r.fns.find((x) => x.kind !== 'module' && x.line === pos.line + 1);
+  return f ? new vscode.Hover(new vscode.MarkdownString(fnMarkdown(f))) : null;
+}
+
+// Opens the whole report beside the code; from a CodeLens, scrolled to that function.
+async function explainFile(uri, signature) {
+  const active = vscode.window.activeTextEditor && vscode.window.activeTextEditor.document;
+  const doc = uri && uri.fsPath ? await vscode.workspace.openTextDocument(uri) : active;
+  if (!doc) return vscode.window.showWarningMessage('cdev: open a file first');
+  const text = await explain(doc, '--text');
+  if (text === null) return vscode.window.showWarningMessage('cdev: could not read this file (JS/TS only for now, and it has to parse)');
+  const out = await vscode.workspace.openTextDocument({ content: text, language: 'plaintext' });
+  const ed = await vscode.window.showTextDocument(out, { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, preview: true });
+  const at = typeof signature === 'string' ? text.split('\n').findIndex((l) => l.trimStart().startsWith(signature)) : -1;
+  if (at >= 0) ed.revealRange(new vscode.Range(at, 0, at, 0), vscode.TextEditorRevealType.AtTop);
 }
 
 // ---------------------------------------------------------------- panel

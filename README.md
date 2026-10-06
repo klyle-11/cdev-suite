@@ -53,6 +53,21 @@ How it works:
 - **JS / TS**: cdev rewrites your source as it loads, using a native JS/TS parser. It inserts a snapshot call after each statement on the *same line*, so line numbers and stack traces are unchanged, and your files on disk are never touched. Loading is hooked for Node CommonJS, Node ESM, Bun (for `.ts`), and pages served by `cdev watch` (`.js` directly, `.ts` via a Bun build plugin). See the rewrite with `cdev instrument file.ts`.
 - **C++ / Rust / Go**: debugger-driven auto-watch is planned; use `CDEV_W` / `cdev_w!` / `cdev.W`.
 
+### Static view (`cdev explain`): read a file without running it
+
+`cdev explain app.ts` opens the **Code** tab on a file that is just sitting there. Nothing is executed and no port is opened. For each function, and for the top level, it shows:
+
+- the signature, parameters and locals, with declared types or the type of a literal initializer (`words: string[] = ['b', 'a']`)
+- what it **calls** (resolved to functions in the same file where possible) and what it is **called by**
+- what it changes outside itself: a parameter's contents, `this`, or an outer variable; and which outer variables it reads
+- the shape of its control flow: loops, branches, returns, throws, awaits, nesting depth
+- a one-sentence summary and tags (`recursive`, `self-contained`, `changes its input`, `not used in this file`)
+- the function's source underneath
+
+The view re-reads the file when you save it. `cdev watch app.ts` fills the same tab while the file also runs. `cdev explain --text file` prints the report and `--json` gives it to tools (source on stdin with `--name file.ts`).
+
+Limits, since only the syntax is read: values are never known, a call through an object (`obj.method()`) is not resolved to a class, mutation through a method is recognised by name (`push`, `set`, …), and anonymous callbacks are counted as part of the function around them. JS/TS only for now.
+
 ### What the Memory view shows per language
 
 | language | you see |
@@ -83,6 +98,8 @@ cdev run -- npm run dev           # wrap a dev server: auto-instrument Node/Pyth
 cdev watch index.html             # serve a plain HTML/JS/TS page on :4401, reload on save
 cdev watch app.ts                 # run a single file instrumented; re-run on every save
 cdev watch algo.py | main.cpp | main.rs | main.go | script.php
+cdev explain app.ts               # static view: read a JS/TS file without running it (Code tab)
+cdev explain --text app.ts        # …or print the report (--json for tools)
 cdev --auto watch algo.py         # auto-watch: record every local after each statement, no cdev.w() needed (Python, JS, TS)
 cdev --auto --only bubble_sort watch algo.py   # …only these functions
 cdev --headless …                 # no TUI; one line per event on stdout (scripts / agents)
@@ -96,10 +113,10 @@ cdev sdk ./vendor                 # copy all SDK files into a folder
 
 | key | action |
 |---|---|
-| `1`–`5` / `Tab` | Live · Vars · API · Map · Mem |
+| `←`/`→` (or `Tab`, `1`–`6`) | switch tab: Live · Vars · API · Map · Mem · Code |
 | `e` | API: toggle Calls / Endpoints |
-| `j`/`k` or `↑`/`↓` | move selection |
-| `←`/`→` or `h`/`l` | **Vars / Mem: step through history** |
+| `↑`/`↓` or `j`/`k` | move selection |
+| `[`/`]` or `h`/`l` | **Vars / Mem: step through history** |
 | `G` / `End` | jump to newest and follow |
 | `Enter` | toggle detail pane |
 | `J`/`K` or `PgDn`/`PgUp` | scroll detail |
@@ -107,7 +124,7 @@ cdev sdk ./vendor                 # copy all SDK files into a folder
 | `c` | clear |
 | `q` | quit (stops the wrapped app) |
 
-The web panel uses the same keys, plus `Space` to play/pause in Vars. Deep links: `/#vars:bubbleSort@4`, `/#api`, `/#map`.
+The web panel keeps `1`–`5` for tabs and `←`/`→` for stepping, plus `Space` to play/pause in Vars. It has no Code tab yet. Deep links: `/#vars:bubbleSort@4`, `/#api`, `/#map`.
 
 ## SDKs
 
@@ -258,6 +275,7 @@ src/        main.rs (CLI) · server.rs (HTTP/SSE) · store.rs (ring buffer, view
             structure.rs (data-structure detection + TUI diagrams) · memory.rs (memory model per step)
             debugfmt.rs (Rust {:?} parser)
             api.rs (call pairing, endpoints) · instrument.rs (JS/TS auto-watch rewrite)
+            explain.rs (JS/TS static view: calls, effects, flow)
             runner.rs (cdev run) · watch.rs (cdev watch) · tui.rs
 web/        index.html — the whole web panel
 editor/     vscode/ — VSCodium / VS Code extension

@@ -50,6 +50,12 @@ Legend: ✅ done · 🚧 in progress · 📋 planned · ⚠️ written but untes
 - ✅ Panel in an editor tab (iframe of the web panel); click `file:line` → open; Vars/Mem stepping highlights the source line
 - ⚠️ Not yet run inside VSCodium here (logic is unit-tested with node; the manifest + commands are unverified in the editor)
 
+### Static view (JS / TS)
+- ✅ `src/explain.rs`: per function and top level, read from the syntax tree only: signature, params/locals with declared or literal-inferred types, calls (resolved in-file: `f`, `this.m`, `new K`) and callers, changed params / `this` / outer variables, outer reads, loops / branches / returns / throws / awaits / nesting, summary sentence and tags; imports (ESM + `require`), exports (ESM + `module.exports`), classes / interfaces / types / enums; anonymous callbacks folded into the enclosing function
+- ✅ `cdev explain <file>` (TUI Code tab, no sidecar, re-read on save), `--text`, `--json`, stdin with `--name`; `cdev watch <file>` fills the same tab
+- ✅ TUI: `←`/`→` switch tabs, `[`/`]` or `h`/`l` step in Vars / Mem
+- ⚠️ Extension: static CodeLens + hover per function and "Explain this file" (same status as the rest of the extension: not yet run inside the editor)
+
 ### Auto-watch (Python)
 - ✅ `--auto` / `--only f,g` flags for `run` and `watch` (`CDEV_AUTO_WATCH`, `CDEV_ONLY`, `CDEV_AUTO_MAX` budget)
 - ✅ `sys.settrace` tracer in `cdev.py`: project files only (skips site-packages, frozen importlib, comprehensions, dunders), per-line change detection, `fn()` frame snapshots + `fn.name` container watches, loc = line that caused the change, frame state freed on return
@@ -88,6 +94,13 @@ Legend: ✅ done · 🚧 in progress · 📋 planned · ⚠️ written but untes
 - 📋 `--auto` via a debugger (DAP: `lldb-dap`, `dlv dap`, `debugpy`, Node inspector): step line by line, read locals, auto-continue; one implementation for C++ / Rust / Go
 - 📋 JS/TS: inline `<script>` blocks in HTML pages; source maps for tsx/ts-node-compiled CJS (currently instruments the compiled JS)
 - 📋 JS/TS: closure variables from enclosing functions (only the function's own params/locals are watched today)
+
+**Static view**: JS/TS done (see Done), next:
+- 📋 Other languages (needs a parser per language, e.g. tree-sitter; Python first)
+- 📋 Across files: follow imports so calls and callers resolve project-wide
+- 📋 Web panel Code tab; call graph of the file drawn as a diagram
+- 📋 Resolve `obj.method()` when the object's class is known from `new K()` or a type annotation
+- 📋 Overlay recorded values on the static view when the file has also been run
 
 **Memory view (pointers, addresses, bytes)**: step 1 done (see Done), next:
 - 📋 Byte view (debugger route): hex dump with field boundaries + padding, struct layout / alignment

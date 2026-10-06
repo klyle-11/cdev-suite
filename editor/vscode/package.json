@@ -18,11 +18,13 @@
       { "command": "cdev.showPanel", "title": "Show panel", "category": "cdev" },
       { "command": "cdev.stop", "title": "Stop", "category": "cdev" },
       { "command": "cdev.toggleInline", "title": "Toggle inline values", "category": "cdev" },
-      { "command": "cdev.clear", "title": "Clear values", "category": "cdev" }
+      { "command": "cdev.clear", "title": "Clear values", "category": "cdev" },
+      { "command": "cdev.explainFile", "title": "Explain this file (read it, don't run it)", "category": "cdev", "icon": "$(book)" }
     ],
     "menus": {
       "editor/title": [
-        { "command": "cdev.autoWatchFile", "when": "resourceExtname =~ /\\.(py|js|mjs|cjs|ts|mts|tsx)$/", "group": "navigation" }
+        { "command": "cdev.autoWatchFile", "when": "resourceExtname =~ /\\.(py|js|mjs|cjs|ts|mts|tsx)$/", "group": "navigation" },
+        { "command": "cdev.explainFile", "when": "resourceExtname =~ /\\.(js|mjs|cjs|jsx|ts|mts|cts|tsx)$/", "group": "navigation" }
       ]
     },
     "configuration": {
@@ -31,7 +33,8 @@
         "cdev.path": { "type": "string", "default": "cdev", "description": "Path to the cdev binary." },
         "cdev.port": { "type": "number", "default": 4400, "description": "Sidecar port (pages use port+1)." },
         "cdev.inlineValues": { "type": "boolean", "default": true, "description": "Show the latest values at the end of lines." },
-        "cdev.codeLens": { "type": "boolean", "default": true, "description": "Show '▶ auto-watch' above functions." }
+        "cdev.codeLens": { "type": "boolean", "default": true, "description": "Show '▶ auto-watch' above functions." },
+        "cdev.staticLens": { "type": "boolean", "default": true, "description": "Show what each JS/TS function calls and changes above it, read from the source without running it." }
       }
     }
   }

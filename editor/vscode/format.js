@@ -28,4 +28,10 @@ function lineText(e, prev) {
 
 const locKey = (file, line) => `${file}:${line}`;
 
-module.exports = { lineText, short, locKey };
+/** Hover text for one function of a `cdev explain --json` report. */
+function fnMarkdown(f) {
+  const rows = (f.rows || []).map(([label, text]) => `- **${label}** \`${String(text).replace(/`/g, "'")}\``).join('\n');
+  return `**cdev · static** \`${f.signature}\` · lines ${f.line}–${f.end}\n\n${f.summary}\n\n${rows}`;
+}
+
+module.exports = { lineText, short, locKey, fnMarkdown };

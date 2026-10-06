@@ -1,4 +1,5 @@
 use crate::event::{compact, fmt_ms, fmt_time, truncate, Event};
+use crate::explain::{Func, Report};
 use crate::store::{self, Store};
 use anyhow::Result;
 use ratatui::{
@@ -6,16 +7,20 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 use serde_json::Value;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 pub struct Info {
+    /// 0 = static view only, no sidecar is listening
     pub port: u16,
     pub cmd: Option<String>,
+    /// file shown in the Code tab (read, never run)
+    pub code: Option<PathBuf>,
 }
 
 const LIVE: usize = 0;
@@ -23,15 +28,45 @@ const VARS: usize = 1;
 const API: usize = 2;
 const MAP: usize = 3;
 const MEM: usize = 4;
-const TABS: [&str; 5] = ["Live", "Vars", "API", "Map", "Mem"];
+const CODE: usize = 5;
+const TABS: [&str; 6] = ["Live", "Vars", "API", "Map", "Mem", "Code"];
+
+/// The Code tab's file: re-read and re-analysed whenever it is saved.
+struct CodeView {
+    path: PathBuf,
+    stamp: Option<SystemTime>,
+    src: Vec<String>,
+    report: Option<Report>,
+    /// why the latest version could not be read (the last good report stays up)
+    err: Option<String>,
+}
+
+impl CodeView {
+    fn refresh(&mut self) {
+        let stamp = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+        if stamp == self.stamp && (self.report.is_some() || self.err.is_some()) {
+            return;
+        }
+        self.stamp = stamp;
+        let file = self.path.display().to_string();
+        match std::fs::read_to_string(&self.path).map_err(|e| e.to_string()).and_then(|src| crate::explain::explain(&src, &file).map(|r| (src, r))) {
+            Ok((src, r)) => {
+                self.src = src.lines().map(|l| l.replace('\t', "  ")).collect();
+                self.report = Some(r);
+                self.err = None;
+            }
+            Err(e) => self.err = Some(e.lines().next().unwrap_or("could not read").to_string()),
+        }
+    }
+}
 
 struct App {
     info: Info,
     tab: usize,
     /// selected row per tab; None = follow newest
-    sel: [Option<usize>; 5],
-    off: [usize; 5],
-    len: [usize; 5],
+    sel: [Option<usize>; 6],
+    off: [usize; 6],
+    len: [usize; 6],
     detail: bool,
     scroll: u16,
     filter: String,
@@ -44,11 +79,12 @@ struct App {
     mem_len: usize,
     /// API tab: endpoints (grouped) instead of individual calls
     endpoints_mode: bool,
+    code: Option<CodeView>,
 }
 
 pub fn run(store: Arc<Store>, info: Info) -> Result<()> {
     let mut term = ratatui::init();
-    let mut app = App { info, tab: LIVE, sel: [None; 5], off: [0; 5], len: [0; 5], detail: false, scroll: 0, filter: String::new(), editing: false, step: None, hist_len: 0, mem_step: None, mem_len: 0, endpoints_mode: false };
+    let mut app = App::new(info);
     let res = (|| -> Result<()> {
         loop {
             term.draw(|f| app.draw(f, &store))?;
@@ -66,6 +102,12 @@ pub fn run(store: Arc<Store>, info: Info) -> Result<()> {
 }
 
 impl App {
+    fn new(info: Info) -> App {
+        let code = info.code.clone().map(|path| CodeView { path, stamp: None, src: Vec::new(), report: None, err: None });
+        let tab = if info.port == 0 { CODE } else { LIVE };
+        App { info, tab, sel: [None; 6], off: [0; 6], len: [0; 6], detail: false, scroll: 0, filter: String::new(), editing: false, step: None, hist_len: 0, mem_step: None, mem_len: 0, endpoints_mode: false, code }
+    }
+
     fn key(&mut self, k: KeyEvent, store: &Store) -> bool {
         if self.editing {
             match k.code {
@@ -86,14 +128,14 @@ impl App {
         match k.code {
             KeyCode::Char('q') => return true,
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => return true,
-            KeyCode::Char(c @ '1'..='5') => self.set_tab(c as usize - '1' as usize),
-            KeyCode::Tab => self.set_tab((self.tab + 1) % 5),
-            KeyCode::BackTab => self.set_tab((self.tab + 4) % 5),
-            KeyCode::Char('h') | KeyCode::Left if self.tab == MEM && self.mem_len > 0 => {
+            KeyCode::Right | KeyCode::Tab => self.set_tab((self.tab + 1) % TABS.len()),
+            KeyCode::Left | KeyCode::BackTab => self.set_tab((self.tab + TABS.len() - 1) % TABS.len()),
+            KeyCode::Char(c @ '1'..='6') => self.set_tab(c as usize - '1' as usize),
+            KeyCode::Char('h') | KeyCode::Char('[') if self.tab == MEM && self.mem_len > 0 => {
                 let cur = self.mem_step.unwrap_or(self.mem_len - 1);
                 self.mem_step = Some(cur.saturating_sub(1));
             }
-            KeyCode::Char('l') | KeyCode::Right if self.tab == MEM && self.mem_len > 0 => {
+            KeyCode::Char('l') | KeyCode::Char(']') if self.tab == MEM && self.mem_len > 0 => {
                 let cur = self.mem_step.unwrap_or(self.mem_len - 1);
                 self.mem_step = if cur + 1 >= self.mem_len - 1 { None } else { Some(cur + 1) };
             }
@@ -107,11 +149,11 @@ impl App {
                 self.detail = !self.detail;
                 self.scroll = 0;
             }
-            KeyCode::Char('h') | KeyCode::Left if self.tab == VARS && self.hist_len > 0 => {
+            KeyCode::Char('h') | KeyCode::Char('[') if self.tab == VARS && self.hist_len > 0 => {
                 let cur = self.step.unwrap_or(self.hist_len - 1);
                 self.step = Some(cur.saturating_sub(1));
             }
-            KeyCode::Char('l') | KeyCode::Right if self.tab == VARS && self.hist_len > 0 => {
+            KeyCode::Char('l') | KeyCode::Char(']') if self.tab == VARS && self.hist_len > 0 => {
                 let cur = self.step.unwrap_or(self.hist_len - 1);
                 self.step = if cur + 1 >= self.hist_len - 1 { None } else { Some(cur + 1) };
             }
@@ -123,7 +165,7 @@ impl App {
             KeyCode::Char('/') => self.editing = true,
             KeyCode::Char('c') => {
                 store.clear();
-                self.sel = [None; 5];
+                self.sel = [None; 6];
                 self.mem_step = None;
             }
             KeyCode::Esc => {
@@ -151,7 +193,7 @@ impl App {
         }
         let cur = self.cur(t) as i64;
         let n = (cur + d).clamp(0, len as i64 - 1) as usize;
-        self.sel[t] = if n == len - 1 && d > 0 && t != VARS && t != MAP { None } else { Some(n) };
+        self.sel[t] = if n == len - 1 && d > 0 && t != VARS && t != MAP && t != CODE { None } else { Some(n) };
         self.scroll = 0;
         if t == VARS {
             self.step = None;
@@ -162,7 +204,7 @@ impl App {
         let len = self.len[t];
         match self.sel[t] {
             Some(i) => i.min(len.saturating_sub(1)),
-            None if t == VARS || t == MAP => 0,
+            None if t == VARS || t == MAP || t == CODE => 0,
             None => len.saturating_sub(1),
         }
     }
@@ -190,7 +232,8 @@ impl App {
             VARS => self.vars(f, body, store),
             API => self.api(f, body, store),
             MAP => self.map(f, body, store),
-            _ => self.mem(f, body, store),
+            MEM => self.mem(f, body, store),
+            _ => self.code(f, body),
         }
         self.footer(f, foot);
     }
@@ -199,10 +242,13 @@ impl App {
         let (n, total, app_status) = store.with(|i| (i.events.len(), i.total, i.app_status.clone()));
         let mut spans = vec![Span::styled(" cdev ", Style::new().bold().fg(Color::Black).bg(Color::Green)), Span::raw(" ")];
         for (i, t) in TABS.iter().enumerate() {
-            let s = format!(" {} {} ", i + 1, t);
+            let s = format!(" {t} ");
             spans.push(if i == self.tab { Span::styled(s, Style::new().reversed().bold()) } else { Span::styled(s, Style::new().dim()) });
         }
-        spans.push(Span::styled(format!("   http://localhost:{}  {n}/{total} events", self.info.port), Style::new().dim()));
+        spans.push(Span::styled(
+            if self.info.port == 0 { "   static view · nothing is running".to_string() } else { format!("   http://localhost:{}  {n}/{total} events", self.info.port) },
+            Style::new().dim(),
+        ));
         if let Some(c) = app_status.or_else(|| self.info.cmd.clone()) {
             let col = if c.starts_with("running") { Color::Green } else { Color::Yellow };
             spans.push(Span::styled(format!("  {}", truncate(&c, 60)), Style::new().fg(col)));
@@ -214,7 +260,7 @@ impl App {
         let line = if self.editing {
             Line::from(vec![Span::styled(" filter: ", Style::new().bold().fg(Color::Yellow)), Span::raw(&self.filter), Span::styled("█", Style::new().fg(Color::Yellow))])
         } else {
-            let mut s = vec![Span::styled(" 1-5 tabs · j/k move · ←/→ step (Vars/Mem) · G follow · ⏎ detail · J/K scroll · / filter · c clear · q quit", Style::new().dim())];
+            let mut s = vec![Span::styled(" ←/→ tabs · ↑/↓ move · [ ] step · ⏎ detail · PgUp/PgDn scroll · / filter · c clear · q quit", Style::new().dim())];
             if !self.filter.is_empty() {
                 s.push(Span::styled(format!("   filter: {}", self.filter), Style::new().fg(Color::Yellow)));
             }
@@ -489,7 +535,7 @@ impl App {
             vec![
                 Line::from(vec![
                     Span::styled(format!(" step {}/{}  ", mv.step + 1, mv.steps), Style::new().bold()),
-                    Span::styled("←/→ to step", Style::new().dim()),
+                    Span::styled("[ ] to step", Style::new().dim()),
                 ]),
                 Line::from(Span::styled(format!(" {}", mv.note), Style::new().fg(Color::Yellow).bold())),
             ]
@@ -580,6 +626,86 @@ impl App {
         f.render_widget(Paragraph::new(r).scroll((self.scroll, 0)).block(pane(" heap (by address) ")), right);
     }
 
+    // ---------- Code ----------
+    fn code(&mut self, f: &mut Frame, area: Rect) {
+        let Some(mut cv) = self.code.take() else {
+            f.render_widget(Paragraph::new(vec![
+                Line::from(""),
+                Line::from("  No file to read.").bold(),
+                Line::from(""),
+                Line::from("  cdev explain app.ts        read a JS/TS file without running it"),
+                Line::from("  cdev watch app.ts          run it, and read it here as well"),
+            ]), area);
+            return;
+        };
+        cv.refresh();
+        self.code_panes(f, area, &cv);
+        self.code = Some(cv);
+    }
+
+    fn code_panes(&mut self, f: &mut Frame, area: Rect, cv: &CodeView) {
+        let dim = Style::new().dim();
+        let Some(r) = &cv.report else {
+            let why = cv.err.clone().unwrap_or_default();
+            f.render_widget(Paragraph::new(format!("  {}: {why}", cv.path.display())).block(pane(" code ")), area);
+            return;
+        };
+        let filter = self.filter.to_lowercase();
+        let fns: Vec<&Func> = r.fns.iter().filter(|x| filter.is_empty() || x.name.to_lowercase().contains(&filter)).collect();
+        self.len[CODE] = fns.len();
+        let [left, right] = Layout::horizontal([Constraint::Percentage(32), Constraint::Percentage(68)]).areas(area);
+        let h = left.height.saturating_sub(2) as usize;
+        let off = self.window(CODE, h);
+        let cur = self.cur(CODE);
+        let lines: Vec<Line> = fns.iter().enumerate().skip(off).take(h).map(|(i, x)| {
+            let mut l = Line::from(vec![
+                Span::raw("  ".repeat(x.level)),
+                Span::styled(x.name.clone(), Style::new().bold()),
+                Span::styled(format!(" :{}  ", x.line), Style::new().fg(Color::DarkGray)),
+                Span::styled(x.lens.clone(), dim),
+            ]);
+            if i == cur { l = l.style(Style::new().reversed()); }
+            l
+        }).collect();
+        let name = cv.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let title = match &cv.err {
+            Some(_) => format!(" {name} · ⚠ does not parse, showing the last good read "),
+            None => format!(" {name} · {} · {} lines ", r.lang, r.lines),
+        };
+        f.render_widget(Paragraph::new(lines).block(pane(&title)), left);
+
+        let Some(x) = fns.get(cur) else {
+            f.render_widget(Paragraph::new("  No function matches the filter.").block(pane(" function ")), right);
+            return;
+        };
+        let mut d = vec![Line::from(Span::styled(x.summary.clone(), Style::new().fg(Color::Yellow))), Line::from("")];
+        let row = |label: &str, body: String| Line::from(vec![Span::styled(format!("{label:<14}"), dim), Span::raw(body)]);
+        if x.kind == "module" {
+            for i in &r.imports {
+                d.push(row("import", format!("{} ← \"{}\"", if i.names.is_empty() { "(side effects)".to_string() } else { i.names.join(", ") }, i.from)));
+            }
+            if !r.exports.is_empty() {
+                d.push(row("exports", r.exports.join(", ")));
+            }
+            if !r.types.is_empty() {
+                d.push(row("types", r.types.iter().map(|t| format!("{} {} :{}", t.kind, t.name, t.line)).collect::<Vec<_>>().join("  ·  ")));
+            }
+        }
+        for (label, body) in &x.rows {
+            d.push(row(label, body.clone()));
+        }
+        // rows wrap, so size the pane by the wrapped height
+        let width = right.width.saturating_sub(2).max(1) as usize;
+        let need: usize = d.iter().map(|l| l.width().max(1).div_ceil(width)).sum();
+        let top_h = (need as u16 + 2).min(right.height * 3 / 5).max(3);
+        let [top, bot] = Layout::vertical([Constraint::Length(top_h), Constraint::Min(3)]).areas(right);
+        f.render_widget(Paragraph::new(d).wrap(Wrap { trim: false }).block(pane(&format!(" {} ", truncate(&x.signature, width.saturating_sub(4))))), top);
+
+        let src: Vec<Line> = cv.src.iter().enumerate().skip(x.line.saturating_sub(1)).take((x.end + 1).saturating_sub(x.line))
+            .map(|(i, l)| Line::from(vec![Span::styled(format!("{:>4} ", i + 1), Style::new().fg(Color::DarkGray)), Span::raw(l.clone())])).collect();
+        f.render_widget(Paragraph::new(src).scroll((self.scroll, 0)).block(pane(&format!(" lines {}–{} ", x.line, x.end))), bot);
+    }
+
     // ---------- Map ----------
     fn map(&mut self, f: &mut Frame, area: Rect, store: &Store) {
         let (edges, mut ports) = store.with(|i| (store::edges(i), i.ports.iter().map(|(p, n)| (*p, n.clone())).collect::<Vec<_>>()));
@@ -638,6 +764,14 @@ fn pane(title: &str) -> Block<'_> {
 }
 
 fn empty_hint(port: u16) -> Paragraph<'static> {
+    if port == 0 {
+        return Paragraph::new(vec![
+            Line::from(""),
+            Line::from("  Static view: nothing is running, so there are no events.").bold(),
+            Line::from(""),
+            Line::from("  The Code tab reads the file. `cdev watch <file>` runs it as well."),
+        ]);
+    }
     Paragraph::new(vec![
         Line::from(""),
         Line::from("  Waiting for events…").bold(),
@@ -781,14 +915,16 @@ mod tests {
         store.push(ev(json!({"kind": "call", "svc": "api", "name": "getUser", "params": ["id"], "args": [2], "ret": {"id": 2}, "ms": 1.5, "caller": "GET /u/2"})));
         store.push(ev(json!({"kind": "http", "svc": "api", "dir": "in", "method": "GET", "url": "http://localhost:3000/u/2", "status": 200, "ms": 3.0, "from": "browser",
             "req": {"headers": {"accept": "*/*"}}, "res": {"headers": {"content-type": "application/json"}, "body": "{\"id\":2}"}})));
-        let mut app = App { info: Info { port: 4400, cmd: None }, tab: LIVE, sel: [None; 5], off: [0; 5], len: [0; 5], detail: true, scroll: 0,
-            filter: String::new(), editing: false, step: None, hist_len: 0, mem_step: None, mem_len: 0, endpoints_mode: false };
+        let file = std::env::temp_dir().join(format!("cdev-tui-test-{}.ts", std::process::id()));
+        std::fs::write(&file, "function sort(arr: number[]) {\n  for (const x of arr) helper(x);\n  return arr;\n}\nfunction helper(x) {}\n").unwrap();
+        let mut app = App::new(Info { port: 4400, cmd: None, code: Some(file.clone()) });
+        app.detail = true;
         let mut term = Terminal::new(TestBackend::new(110, 24)).unwrap();
         store.push(ev(json!({"kind": "watch", "svc": "api", "name": "v", "t": "std::vector<int>", "v": [1, 2, 3],
             "mem": {"addr": "0x16b9ae9f0", "size": 24, "region": "stack", "heap": {"addr": "0x143e05db0", "len": 3, "cap": 4, "elem": 4, "region": "heap"}}})));
         store.push(ev(json!({"kind": "watch", "svc": "api", "name": "p", "t": "int*", "v": "0x16b9ae9f0",
             "mem": {"addr": "0x16b9ae998", "size": 8, "region": "stack", "ptr": "0x16b9ae9f0"}})));
-        for tab in [LIVE, VARS, API, MAP, MEM] {
+        for tab in [LIVE, VARS, API, MAP, MEM, CODE] {
             app.tab = tab;
             term.draw(|f| app.draw(f, &store)).unwrap();
             let buf = term.backend().buffer().clone();
@@ -797,6 +933,19 @@ mod tests {
             }).collect();
             println!("{text}");
             assert!(text.contains("cdev"));
+            if tab == CODE {
+                assert!(text.contains("sort(arr: number[])") && text.contains("called by sort"), "{text}");
+            }
         }
+        std::fs::remove_file(file).ok();
+
+        // arrow keys move between tabs
+        let press = |app: &mut App, code| app.key(KeyEvent::new(code, KeyModifiers::NONE), &store);
+        app.tab = LIVE;
+        press(&mut app, KeyCode::Right);
+        assert_eq!(app.tab, VARS);
+        press(&mut app, KeyCode::Left);
+        press(&mut app, KeyCode::Left);
+        assert_eq!(app.tab, CODE);
     }
 }

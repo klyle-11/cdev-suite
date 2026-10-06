@@ -62,7 +62,7 @@ pub fn instrument(src: &str, file: &str) -> Result<String, String> {
     Ok(out)
 }
 
-fn line_starts(src: &str) -> Vec<u32> {
+pub(crate) fn line_starts(src: &str) -> Vec<u32> {
     std::iter::once(0).chain(src.match_indices('\n').map(|(i, _)| i as u32 + 1)).collect()
 }
 
